@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>儀表板</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #2c2c2c;
+            color: #f8f9fa;
+            font-family: 'Arial', sans-serif;
+        }
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .card {
+            background-color: #3a3a3a;
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card-header {
+            background-color: #444;
+            border-bottom: none;
+            font-size: 1.25rem;
+            padding: 1rem;
+            border-radius: 10px 10px 0 0;
+        }
+        .btn-custom {
+            border-radius: 20px;
+            padding: 0.5rem 1.5rem;
+        }
+        .note-item {
+            background-color: #444;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .modal-content {
+            background-color: #3a3a3a;
+            color: #f8f9fa;
+        }
+        .modal-header, .modal-footer {
+            border-color: #555;
+        }
+        .btn-close-white {
+            filter: invert(1);
+        }
+        canvas {
+            background-color: #3a3a3a;
+            border-radius: 10px;
+            padding: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>歡迎，{{ current_user.username }}！</h2>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger btn-custom">登出</a>
+        </div>
+
+        <!-- 只顯示 success 類別的 flash 訊息 -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% if category == 'success' %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Sign-In Section -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">簽到</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <button type="submit" name="sign_in" class="btn btn-success btn-custom mb-3">簽到</button>
+                        </form>
+                        <p>總簽到天數: <strong>{{ total_sign_in_days }}</strong></p>
+                        <p>連續簽到天數: <strong>{{ consecutive_sign_in_days }}</strong></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">練舞時間統計</div>
+                    <div class="card-body">
+                        <p>總練舞時間: <strong>{{ total_dance_time }}</strong> 小時</p>
+                        <p>平均練舞時間: <strong>{{ average_dance_time | round(2) }}</strong> 小時</p>
+                        <p>今天的練舞時間: <strong>{{ today_dance_time }}</strong></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dance Session Form and Chart -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">記錄練舞時間</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label for="duration" class="form-label">練舞時間（小時）</label>
+                                <input type="number" name="duration" id="duration" class="form-control" step="0.1" min="0" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-custom">提交</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">練舞時間趨勢</div>
+                    <div class="card-body">
+                        <canvas id="danceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notes Section -->
+        <div class="card mb-4">
+            <div class="card-header">每日筆記</div>
+            <div class="card-body">
+                <form method="POST" class="mb-4">
+                    <div class="mb-3">
+                        <label for="note_content" class="form-label">新增筆記</label>
+                        <textarea name="note_content" id="note_content" class="form-control" rows="3" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-custom">提交筆記</button>
+                </form>
+
+                <h5 class="mb-3">筆記列表</h5>
+                {% if notes %}
+                    {% for note in notes %}
+                        <div class="note-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <p class="mb-1">{{ note.content }}</p>
+                                <small class="text-muted">日期: {{ note.note_date }}</small>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-warning btn-sm btn-custom me-2" data-bs-toggle="modal" data-bs-target="#editNoteModal{{ note.id }}">編輯</button>
+                                <form method="POST" action="{{ url_for('delete_note', note_id=note.id) }}" style="display:inline;">
+                                    <button type="submit" class="btn btn-danger btn-sm btn-custom" onclick="return confirm('確定要刪除此筆記嗎？');">刪除</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Edit Note Modal -->
+                        <div class="modal fade" id="editNoteModal{{ note.id }}" tabindex="-1" aria-labelledby="editNoteModalLabel" aria-hidden="true">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="editNoteModalLabel">編輯筆記</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <form method="POST">
+                                        <div class="modal-body">
+                                            <input type="hidden" name="edit_note_id" value="{{ note.id }}">
+                                            <div class="mb-3">
+                                                <label for="note_content_{{ note.id }}" class="form-label">筆記內容</label>
+                                                <textarea name="note_content" id="note_content_{{ note.id }}" class="form-control" rows="3" required>{{ note.content }}</textarea>
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                                            <button type="submit" class="btn btn-primary">保存更改</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">尚未有筆記。</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart.js Script -->
+    <script>
+        const ctx = document.getElementById('danceChart').getContext('2d');
+        const labels = {{ labels | safe }};
+        const danceData = {{ dance_data | safe }};
+        
+        const danceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '練舞時間 (小時)',
+                    data: danceData,
+                    borderColor: '#0d6efd',
+                    backgroundColor: 'rgba(13, 110, 253, 0.2)',
+                    fill: true,
+                }]
+            },
+            options: {
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: '小時', color: '#f8f9fa' }, ticks: { color: '#f8f9fa' } },
+                    x: { title: { display: true, text: '日期', color: '#f8f9fa' }, ticks: { color: '#f8f9fa' } }
+                },
+                plugins: { legend: { labels: { color: '#f8f9fa' } } }
+            }
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
